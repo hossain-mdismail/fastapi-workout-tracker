@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException, Depends, Query
 from pydantic import BaseModel
 from enum import Enum
 from typing import List, Optional
+from datetime import datetime
 import json
 import os
 
@@ -61,6 +62,7 @@ class Workout(BaseModel):
     reps: int
     sets: int
     category: Category
+    timestamp: str = datetime.now().strftime("%Y-%m-%d %H:%M:%S") # Add this!class Workout(BaseModel):
 
 # NEW MODEL: For partial updates (all fields optional)
 class WorkoutUpdate(BaseModel):
