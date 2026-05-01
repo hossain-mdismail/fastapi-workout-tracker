@@ -1,10 +1,16 @@
 from fastapi import FastAPI, HTTPException, Depends, Query
+from fastapi import Header
 from pydantic import BaseModel
 from enum import Enum
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+from fastapi.security import OAuth2PasswordBearer
+import secrets
 import json
 import os
+from dotenv import load_dotenv
 
 app = FastAPI()
 
@@ -307,3 +313,34 @@ def get_category_stats(
         "average_sets": round(total_sets / len(category_workouts), 2),
         "workouts": category_workouts
     }
+    
+    #==========Authentication: ==================
+    # I am using API Key Authentication
+    
+    # Load environment variables
+load_dotenv()
+API_SECRET_KEY = os.getenv("API_SECRET_KEY")
+
+# DEBUG - Add these lines
+print(f"=== DEBUG ===")
+print(f"API_SECRET_KEY value: '{API_SECRET_KEY}'")
+print(f"Type: {type(API_SECRET_KEY)}")
+print(f"Length: {len(API_SECRET_KEY) if API_SECRET_KEY else 0}")
+print(f"==============")
+    # Define a "Master Key" (In real life, this is hidden)
+#API_SECRET_KEY = os.getenv("API_SECRET_KEY")
+
+if not API_SECRET_KEY:
+    raise ValueError("API_SECRET_KEY environment variable is not set!")
+
+@app.post("/workouts/secure")
+def add_workout_secure(
+    workouts: List[Workout],
+    x_api_key: str = Header(None), # Looks for a header named 'X-API-Key'
+    db: List = Depends(get_db)
+):
+    if x_api_key != API_SECRET_KEY:
+        raise HTTPException(status_code=403, detail="Invalid API Key")
+    
+    # ... rest of your save logic ...
+    return {"message": "Authenticated and saved!"}
