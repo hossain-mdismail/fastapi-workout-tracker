@@ -318,15 +318,21 @@ def get_workout_statistics(
     
     return stats
 
-# ========== STATISTICS - BY CATEGORY ==========
+# ========== STATISTICS - BY CATEGORY (SQL VERSION) ==========
 @app.get("/workouts/stats/category/{category_name}")
 def get_category_stats(
     category_name: Category,
-    db: List = Depends(get_db)  # ← Database injected here
+    db: Session = Depends(get_db)  # ← Real SQL Session injected here!
 ):
-    """Get statistics for a specific category - database is injected"""
-    category_workouts = [w for w in db if w["category"] == category_name.value]
+    """Get statistics for a specific category from the SQL database"""
     
+    # 1. Ask the database to filter rows matching the category name
+    # This runs: SELECT * FROM workouts WHERE category = :category_name;
+    category_workouts = db.query(models.SQLWorkout).filter(
+        models.SQLWorkout.category == category_name.value
+    ).all()
+    
+    # If no rows come back from the database for this category
     if not category_workouts:
         return {
             "category": category_name.value,
@@ -334,8 +340,9 @@ def get_category_stats(
             "message": f"No workouts found in {category_name.value} category"
         }
     
-    total_reps = sum(w["reps"] for w in category_workouts)
-    total_sets = sum(w["sets"] for w in category_workouts)
+    # 2. Calculate totals using dot notation (.reps and .sets) on the SQL objects
+    total_reps = sum(w.reps for w in category_workouts)
+    total_sets = sum(w.sets for w in category_workouts)
     
     return {
         "category": category_name.value,
