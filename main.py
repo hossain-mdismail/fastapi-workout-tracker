@@ -1,48 +1,25 @@
-from fastapi import FastAPI, HTTPException, Depends, Query
-from fastapi import Header
+from fastapi import FastAPI, HTTPException, Depends, Query, Header
 from pydantic import BaseModel
 from enum import Enum
 from typing import List, Optional
-from datetime import datetime, timedelta
-from jose import JWTError, jwt
-from passlib.context import CryptContext
-from fastapi.security import OAuth2PasswordBearer
-import secrets
-import json
+from datetime import datetime
 import os
 from dotenv import load_dotenv
 from sqlalchemy.orm import Session
 import models
 from database import engine, get_db
+
+# Load environment variables
+load_dotenv()
+API_SECRET_KEY = os.getenv("API_SECRET_KEY")
+
+if not API_SECRET_KEY:
+    raise ValueError("API_SECRET_KEY environment variable is not set!")
+
 app = FastAPI()
-
-DB_FILE = "workouts_db.json"
-
-# ========== DATABASE FUNCTIONS ==========
 
 # Create the database tables if they don't exist yet
 models.Base.metadata.create_all(bind=engine)
-
-
-
-# ========== DEPENDENCY INJECTION ==========
-def get_db():
-    """
-    Dependency that provides the current database.
-    FastAPI will call this function and inject the result.
-    """
-    return load_db()
-
-def save_db_dependency(data):
-    """
-    Helper to save database (not a dependency, just a utility)
-    """
-    save_db(data)
-
-# ========== HOME ENDPOINT ==========
-@app.get("/")
-def home():
-    return {"status": "Fitness API is running", "user": "Ismail"}
 
 # ========== ENUM & PYDANTIC MODELS ==========
 class Category(str, Enum):
@@ -52,7 +29,6 @@ class Category(str, Enum):
 
     @classmethod
     def _missing_(cls, value):
-        # Allow case-insensitive matching
         value = value.lower()
         for member in cls:
             if member.value.lower() == value:
@@ -64,9 +40,7 @@ class Workout(BaseModel):
     reps: int
     sets: int
     category: Category
-    timestamp: str = datetime.now().strftime("%Y-%m-%d %H:%M:%S") # Add this!class Workout(BaseModel):
 
-# NEW MODEL: For partial updates (all fields optional)
 class WorkoutUpdate(BaseModel):
     exercise: Optional[str] = None
     reps: Optional[int] = None
@@ -373,14 +347,29 @@ print(f"==============")
 if not API_SECRET_KEY:
     raise ValueError("API_SECRET_KEY environment variable is not set!")
 
-@app.post("/workouts/secure")
-def add_workout_secure(
-    workouts: List[Workout],
-    x_api_key: str = Header(None), # Looks for a header named 'X-API-Key'
-    db: List = Depends(get_db)
+# ========== CREATE (POST) - SECURE & SQL CONNECTED ==========
+@app.post("/workouts", status_code=201)
+def add_workout(
+    workouts: List[Workout],       # Your Pydantic model validating incoming data
+    x_api_key: str = Header(None), # The security gatekeeper looking for X-API-Key in headers
+    db: Session = Depends(get_db)  # ← Real SQL Session injected here!
 ):
+    """Securely add workouts directly into the SQL database using an API key"""
+    
+    # 1. The Security Gatekeeper
     if x_api_key != API_SECRET_KEY:
         raise HTTPException(status_code=403, detail="Invalid API Key")
     
-    # ... rest of your save logic ...
-    return {"message": "Authenticated and saved!"}
+    # 2. Convert and save authorized data straight to SQLite
+    for w in workouts:
+        db_workout = models.SQLWorkout(
+            exercise=w.exercise,
+            reps=w.reps,
+            sets=w.sets,
+            category=w.category.value
+        )
+        db.add(db_workout) # Stage it in the database session
+    
+    db.commit() # Save changes permanently to your workouts.db file!
+    
+    return {"message": "Authenticated and saved directly to your SQL database!"}
