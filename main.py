@@ -11,23 +11,19 @@ import secrets
 import json
 import os
 from dotenv import load_dotenv
-
+from sqlalchemy.orm import Session
+import models
+from database import engine, get_db
 app = FastAPI()
 
 DB_FILE = "workouts_db.json"
 
 # ========== DATABASE FUNCTIONS ==========
-def load_db():
-    """Load data from file when server starts"""
-    if os.path.exists(DB_FILE):
-        with open(DB_FILE, "r") as f:
-            return json.load(f)
-    return []
 
-def save_db(data):
-    """Save data to file whenever we change it"""
-    with open(DB_FILE, "w") as f:
-        json.dump(data, f, indent=4)
+# Create the database tables if they don't exist yet
+models.Base.metadata.create_all(bind=engine)
+
+
 
 # ========== DEPENDENCY INJECTION ==========
 def get_db():
@@ -80,15 +76,26 @@ class WorkoutUpdate(BaseModel):
 # ========== CREATE (POST) ==========
 @app.post("/workouts", status_code=201)
 def add_workout(
-    workouts: List[Workout],
-    db: List = Depends(get_db)  # ← Database injected here
+    workouts: List[Workout], 
+    x_api_key: str = Header(None), # The security gatekeeper is now here!
+    db: Session = Depends(get_db)  # Talking directly to your SQL database
 ):
-    """Add new workouts - database is injected"""
-    for w in workouts:
-        db.append(w.dict())
+    # 1. Block intruders
+    if x_api_key != API_SECRET_KEY:
+        raise HTTPException(status_code=403, detail="Invalid API Key")
     
-    save_db(db)  # Save the modified database
-    return {"message": f"{len(workouts)} workouts added!", "total": len(db)}
+    # 2. Save authorized data straight to SQLite
+    for w in workouts:
+        db_workout = models.SQLWorkout(
+            exercise=w.exercise,
+            reps=w.reps,
+            sets=w.sets,
+            category=w.category.value
+        )
+        db.add(db_workout)
+    
+    db.commit() 
+    return {"message": "Authenticated and saved directly to your SQL database!"}
 
 # ========== READ (GET) - ALL WITH FILTERS ==========
 @app.get("/workouts")
