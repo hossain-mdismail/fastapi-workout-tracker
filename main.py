@@ -97,142 +97,163 @@ def add_workout(
     db.commit() 
     return {"message": "Authenticated and saved directly to your SQL database!"}
 
-# ========== READ (GET) - ALL WITH FILTERS ==========
+# ========== READ (GET) - ALL WITH FILTERS (SQL VERSION) ==========
 @app.get("/workouts")
 def get_workouts(
     category: Optional[Category] = Query(None, description="Filter by category"),
     min_reps: Optional[int] = Query(None, description="Minimum repetitions"),
     max_reps: Optional[int] = Query(None, description="Maximum repetitions"),
-    db: List = Depends(get_db)  # ← Database injected here
+    db: Session = Depends(get_db)  # ← Real SQL Session injected here!
 ):
-    """Get all workouts with optional filters - database is injected"""
-    filtered_db = db
+    """Get all workouts with optional filters from the SQL database"""
     
-    # Filter by category
+    # 1. Start a base query pointing to your SQL table
+    query = db.query(models.SQLWorkout)
+    
+    # 2. Add filters dynamically based on what the user types in the browser
     if category:
-        filtered_db = [w for w in filtered_db if w["category"] == category.value]
+        query = query.filter(models.SQLWorkout.category == category.value)
     
-    # Filter by min reps
     if min_reps is not None:
-        filtered_db = [w for w in filtered_db if w["reps"] >= min_reps]
-    
-    # Filter by max reps
+        query = query.filter(models.SQLWorkout.reps >= min_reps)
+        
     if max_reps is not None:
-        filtered_db = [w for w in filtered_db if w["reps"] <= max_reps]
+        query = query.filter(models.SQLWorkout.reps <= max_reps)
+    
+    # 3. Execute the query and pull the list from workouts.db
+    filtered_workouts = query.all()
     
     return {
-        "total": len(filtered_db),
-        "workouts": filtered_db
+        "total": len(filtered_workouts),
+        "workouts": filtered_workouts
     }
 
-# ========== READ (GET) - SINGLE WORKOUT ==========
+
+# ========== READ (GET) - SINGLE WORKOUT (SQL VERSION) ==========
 @app.get("/workouts/{workout_id}")
 def get_workout_by_id(
     workout_id: int,
-    db: List = Depends(get_db)  # ← Database injected here
+    db: Session = Depends(get_db)  # ← Real SQL Session injected here!
 ):
-    """Get a single workout by its ID/index - database is injected"""
-    if 0 <= workout_id < len(db):
+    """Get a single workout by its unique SQL ID"""
+    
+    # Target the exact row matching the given unique ID
+    workout = db.query(models.SQLWorkout).filter(models.SQLWorkout.id == workout_id).first()
+    
+    if workout:
         return {
             "id": workout_id,
-            "workout": db[workout_id]
+            "workout": workout
         }
+        
     raise HTTPException(
         status_code=404, 
-        detail=f"Workout with id {workout_id} not found"
+        detail=f"Workout with id {workout_id} not found in the database"
     )
 
-# ========== UPDATE (PUT) - MODIFY EXISTING ==========
+# ========== UPDATE (PUT) - MODIFY EXISTING (SQL VERSION) ==========
 @app.put("/workouts/{workout_id}")
 def update_workout(
     workout_id: int,
-    workout_update: WorkoutUpdate,
-    db: List = Depends(get_db)  # ← Database injected here
+    workout_update: WorkoutUpdate,  # Still using your awesome Pydantic partial update model!
+    db: Session = Depends(get_db)   # ← Real SQL Session injected here!
 ):
-    """Update a specific workout (partial updates allowed) - database is injected"""
+    """Update a specific workout in the SQL database (partial updates allowed)"""
     
-    # Check if workout exists
-    if workout_id < 0 or workout_id >= len(db):
+    # 1. Look up the existing row in the database by its unique ID
+    db_workout = db.query(models.SQLWorkout).filter(models.SQLWorkout.id == workout_id).first()
+    
+    # If the row doesn't exist, immediately throw a 404
+    if not db_workout:
         raise HTTPException(
             status_code=404,
             detail=f"Workout with id {workout_id} not found"
         )
     
-    # Get current workout
-    current_workout = db[workout_id]
-    
-    # Update only the fields that were provided
+    # 2. Update only the fields that the user actually provided in the request
     if workout_update.exercise is not None:
-        current_workout["exercise"] = workout_update.exercise
+        db_workout.exercise = workout_update.exercise
     
     if workout_update.reps is not None:
         if workout_update.reps <= 0:
             raise HTTPException(status_code=400, detail="Reps must be positive")
-        current_workout["reps"] = workout_update.reps
+        db_workout.reps = workout_update.reps
     
     if workout_update.sets is not None:
         if workout_update.sets <= 0:
             raise HTTPException(status_code=400, detail="Sets must be positive")
-        current_workout["sets"] = workout_update.sets
+        db_workout.sets = workout_update.sets
     
     if workout_update.category is not None:
-        current_workout["category"] = workout_update.category.value
+        db_workout.category = workout_update.category.value
     
-    # Save to database
-    db[workout_id] = current_workout
-    save_db(db)  # Save the changes
+    # 3. Save the changes permanently to workouts.db
+    db.commit()
+    
+    # 4. Refresh our local object to capture any DB-side changes (like timestamps)
+    db.refresh(db_workout)
     
     return {
-        "message": f"Workout {workout_id} updated successfully",
-        "updated_workout": current_workout
+        "message": f"Workout {workout_id} updated successfully in the SQL database!",
+        "updated_workout": db_workout
     }
 
-# ========== DELETE - SINGLE WORKOUT ==========
+# ========== DELETE - SINGLE WORKOUT (SQL VERSION) ==========
 @app.delete("/workouts/{workout_id}")
 def delete_single_workout(
     workout_id: int,
-    db: List = Depends(get_db)  # ← Database injected here
+    db: Session = Depends(get_db)  # ← Real SQL Session injected here!
 ):
-    """Delete a single workout by ID - database is injected"""
+    """Delete a single workout by its permanent unique SQL ID"""
     
-    if 0 <= workout_id < len(db):
-        deleted_workout = db.pop(workout_id)
-        save_db(db)  # Save the changes
-        return {
-            "message": f"Workout {workout_id} deleted successfully",
-            "deleted_workout": deleted_workout,
-            "remaining": len(db)
-        }
+    # 1. Target the specific row matching the given unique ID
+    db_workout = db.query(models.SQLWorkout).filter(models.SQLWorkout.id == workout_id).first()
     
-    raise HTTPException(
-        status_code=404,
-        detail=f"Workout with id {workout_id} not found"
-    )
+    # If the row doesn't exist, throw a 404
+    if not db_workout:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Workout with id {workout_id} not found"
+        )
+    
+    # 2. Delete the row and save the changes permanently to workouts.db
+    db.delete(db_workout)
+    db.commit()
+    
+    return {
+        "message": f"Workout {workout_id} deleted successfully from the SQL database"
+    }
 
-# ========== DELETE - MULTIPLE WORKOUTS ==========
+
+# ========== DELETE - MULTIPLE WORKOUTS (SQL VERSION) ==========
 @app.delete("/workouts")
 def delete_multiple_workouts(
     workout_ids: List[int],
-    db: List = Depends(get_db)  # ← Database injected here
+    db: Session = Depends(get_db)  # ← Real SQL Session injected here!
 ):
-    """Delete multiple workouts by IDs - database is injected"""
+    """Delete multiple workouts by a list of IDs cleanly using SQL"""
     
-    # Sort in reverse to delete from end to start (so indexes don't shift)
-    workout_ids.sort(reverse=True)
-    deleted_count = 0
-    deleted_ids = []
+    # 1. Find all rows where the ID matches any number inside the workout_ids list
+    # The .in_() operator acts like a clean SQL query: WHERE id IN (1, 2, 3)
+    query = db.query(models.SQLWorkout).filter(models.SQLWorkout.id.in_(workout_ids))
     
-    for wid in workout_ids:
-        if 0 <= wid < len(db):
-            db.pop(wid)
-            deleted_count += 1
-            deleted_ids.append(wid)
+    # Fetch the actual matching items so we know how many we found
+    matching_workouts = query.all()
+    deleted_count = len(matching_workouts)
     
-    save_db(db)  # Save changes to disk
+    if deleted_count == 0:
+        raise HTTPException(
+            status_code=404,
+            detail="None of the provided IDs were found in the database"
+        )
+    
+    # 2. Delete all targeted rows simultaneously and save to disk
+    query.delete(synchronize_session=False)
+    db.commit()
+    
     return {
-        "message": f"Deleted {deleted_count} workouts successfully", 
-        "deleted_ids": deleted_ids,
-        "remaining": len(db)
+        "message": f"Deleted {deleted_count} workouts successfully from the SQL database",
+        "requested_ids": workout_ids
     }
 
 # ========== STATISTICS - SUMMARY ==========
