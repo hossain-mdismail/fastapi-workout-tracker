@@ -256,21 +256,26 @@ def delete_multiple_workouts(
         "requested_ids": workout_ids
     }
 
-# ========== STATISTICS - SUMMARY ==========
+# ========== STATISTICS - SUMMARY (SQL VERSION) ==========
 @app.get("/workouts/stats/summary")
 def get_workout_statistics(
-    db: List = Depends(get_db)  # ← Database injected here
+    db: Session = Depends(get_db)  # ← Real SQL Session injected here!
 ):
-    """Get comprehensive statistics about all workouts - database is injected"""
-    if not db:
+    """Get comprehensive statistics about all workouts from the SQL database"""
+    
+    # 1. Fetch all workout records out of the SQL table
+    all_workouts = db.query(models.SQLWorkout).all()
+    
+    # If the database table is completely empty, return an empty structure
+    if not all_workouts:
         return {
             "total_workouts": 0,
             "message": "No workouts found. Add some workouts first!"
         }
     
-    # Initialize stats
+    # Initialize your stats dictionary (keeping your exact original structure!)
     stats = {
-        "total_workouts": len(db),
+        "total_workouts": len(all_workouts),
         "total_reps": 0,
         "total_sets": 0,
         "average_reps_per_workout": 0,
@@ -280,14 +285,14 @@ def get_workout_statistics(
         "exercise_counts": {}
     }
     
-    # Calculate totals
+    # 2. Calculate totals using the records pulled from SQL
     exercise_count = {}
-    for workout in db:
-        stats["total_reps"] += workout["reps"]
-        stats["total_sets"] += workout["sets"]
+    for workout in all_workouts:
+        stats["total_reps"] += workout.reps     # Note: Using dot notation (workout.reps)
+        stats["total_sets"] += workout.sets     # instead of dictionary brackets now!
         
         # Count by category
-        category = workout["category"]
+        category = workout.category
         if category not in stats["by_category"]:
             stats["by_category"][category] = {
                 "count": 0,
@@ -295,16 +300,16 @@ def get_workout_statistics(
                 "total_sets": 0
             }
         stats["by_category"][category]["count"] += 1
-        stats["by_category"][category]["total_reps"] += workout["reps"]
-        stats["by_category"][category]["total_sets"] += workout["sets"]
+        stats["by_category"][category]["total_reps"] += workout.reps
+        stats["by_category"][category]["total_sets"] += workout.sets
         
         # Count exercises
-        exercise = workout["exercise"]
+        exercise = workout.exercise
         exercise_count[exercise] = exercise_count.get(exercise, 0) + 1
     
     # Calculate averages
-    stats["average_reps_per_workout"] = round(stats["total_reps"] / len(db), 2)
-    stats["average_sets_per_workout"] = round(stats["total_sets"] / len(db), 2)
+    stats["average_reps_per_workout"] = round(stats["total_reps"] / len(all_workouts), 2)
+    stats["average_sets_per_workout"] = round(stats["total_sets"] / len(all_workouts), 2)
     
     # Find most common exercise
     if exercise_count:
