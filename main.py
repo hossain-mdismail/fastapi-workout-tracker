@@ -176,9 +176,12 @@ def update_workout(
 @app.delete("/workouts/{workout_id}")
 def delete_single_workout(
     workout_id: int,
+    x_api_key: str = Header(None),  # ← Security Gatekeeper added here!
     db: Session = Depends(get_db)  # ← Real SQL Session injected here!
 ):
-    """Delete a single workout by its permanent unique SQL ID"""
+    """Securely delete a single workout by its ID"""
+    if x_api_key != API_SECRET_KEY:
+        raise HTTPException(status_code=403, detail="Invalid API Key")
     
     # 1. Target the specific row matching the given unique ID
     db_workout = db.query(models.SQLWorkout).filter(models.SQLWorkout.id == workout_id).first()
@@ -203,10 +206,13 @@ def delete_single_workout(
 @app.delete("/workouts")
 def delete_multiple_workouts(
     workout_ids: List[int],
+    x_api_key: str = Header(None),  # ← Security Gatekeeper added here!
     db: Session = Depends(get_db)  # ← Real SQL Session injected here!
 ):
-    """Delete multiple workouts by a list of IDs cleanly using SQL"""
     
+    """Securely delete multiple workouts by their ID"""
+    if x_api_key != API_SECRET_KEY:
+        raise HTTPException(status_code=403, detail="Invalid API Key")
     # 1. Find all rows where the ID matches any number inside the workout_ids list
     # The .in_() operator acts like a clean SQL query: WHERE id IN (1, 2, 3)
     query = db.query(models.SQLWorkout).filter(models.SQLWorkout.id.in_(workout_ids))
@@ -233,8 +239,14 @@ def delete_multiple_workouts(
 # ========== STATISTICS - SUMMARY (SQL VERSION) ==========
 @app.get("/workouts/stats/summary")
 def get_workout_statistics(
+    x_api_key: str = Header(None),  # ← Security Gatekeeper added here!
     db: Session = Depends(get_db)  # ← Real SQL Session injected here!
 ):
+    
+    """Securely view comprehensive statistics about all workouts"""
+    if x_api_key != API_SECRET_KEY:
+        raise HTTPException(status_code=403, detail="Invalid API Key")
+    
     """Get comprehensive statistics about all workouts from the SQL database"""
     
     # 1. Fetch all workout records out of the SQL table
